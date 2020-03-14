@@ -169,6 +169,12 @@ pub struct P2pConfig {
 pub struct TrustedPeer {
     pub address: Address,
     pub id: Id,
+
+    // If true, forces the trusted peer to be selected as a node in the P2P overlay topology. This
+    // allows "trust" relationships to be made between nodes (for example, stake pool operators
+    // who wish to maintain a cluster of connected nodes).
+    #[serde(default)]
+    pub preferred: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -259,7 +265,11 @@ impl std::str::FromStr for TrustedPeer {
             return Err("Missing id component".to_owned());
         };
 
-        Ok(TrustedPeer { address, id })
+        Ok(TrustedPeer {
+            address,
+            id,
+            preferred: false,
+        })
     }
 }
 

@@ -329,7 +329,20 @@ fn handle_propagation_msg(
     let prop_state = state.clone();
     let send_to_peers = match msg {
         PropagateMsg::Block(ref header) => {
-            debug!(state.logger(), "block to propagate"; "hash" => %header.hash());
+            match header.get_stakepool_id() {
+                Some(stakepool_id) => {
+                    let printable = stakepool_id.to_string();
+                    if printable.starts_with("634f6d2be73e85db13a934523b6") {
+                        println!("block made by MY stakepool: {}", printable);
+                    } else {
+                        println!("block made by stakepool: {}", printable);
+                    }
+                }
+                None => {
+                    println!("block made by unknown stakepool");
+                }
+            }
+            warn!(state.logger(), "block to propagate"; "hash" => %header.hash());
             let header = header.clone();
             let future = state
                 .topology

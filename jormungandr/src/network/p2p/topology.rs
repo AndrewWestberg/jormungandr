@@ -12,6 +12,7 @@ use poldercast::{
     NodeProfile, PolicyReport, StrikeReason, Topology,
 };
 use slog::Logger;
+use std::borrow::BorrowMut;
 use tokio::prelude::future::{self, Future};
 use tokio::sync::lock::{Lock, LockGuard};
 
@@ -77,6 +78,18 @@ impl Builder {
             self.topology
                 .add_layer(custom_layers::RandomDirectConnections::default());
         }
+
+        let preferred = config
+            .trusted_peers
+            .iter()
+            .filter(|peer| peer.preferred)
+            .map(|peer| peer.id.into())
+            .collect::<Vec<poldercast::Id>>();
+        if !preferred.is_empty() {
+            self.topology
+                .add_layer(custom_layers::PreferredPeers::with_peers(preferred));
+        }
+
         self
     }
 

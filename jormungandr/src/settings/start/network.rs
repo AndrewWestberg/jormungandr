@@ -96,6 +96,7 @@ pub struct Configuration {
 pub struct TrustedPeer {
     pub address: poldercast::Address,
     pub id: Id,
+    pub preferred: bool,
 }
 
 impl From<super::config::TrustedPeer> for TrustedPeer {
@@ -103,6 +104,7 @@ impl From<super::config::TrustedPeer> for TrustedPeer {
         TrustedPeer {
             address: tp.address.0,
             id: tp.id,
+            preferred: false,
         }
     }
 }

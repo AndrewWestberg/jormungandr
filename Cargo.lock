@@ -2000,7 +2000,7 @@ dependencies = [
  "network-grpc",
  "nix 0.17.0",
  "pin-utils",
- "poldercast 0.11.7",
+ "poldercast",
  "r2d2",
  "rand 0.7.3",
  "rand_core 0.5.1",
@@ -2054,7 +2054,7 @@ dependencies = [
  "jormungandr-lib",
  "lazy_static",
  "mktemp",
- "poldercast 0.11.3",
+ "poldercast",
  "protobuf",
  "protoc-rust",
  "quickcheck",
@@ -2088,7 +2088,7 @@ dependencies = [
  "chrono",
  "ed25519-bip32",
  "humantime",
- "poldercast 0.11.3",
+ "poldercast",
  "quickcheck",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
@@ -2118,7 +2118,7 @@ dependencies = [
  "jormungandr-lib",
  "lazy_static",
  "mktemp",
- "poldercast 0.11.3",
+ "poldercast",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
  "rand_core 0.5.1",
@@ -2834,23 +2834,8 @@ checksum = "feb3b2b1033b8a60b4da6ee470325f887758c95d5320f52f9ce0df055a55940e"
 
 [[package]]
 name = "poldercast"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9c4760dc0b6e9765be96a3e4d8f5bcf644df8990c253a8440c68d70242e551e"
-dependencies = [
- "hex",
- "lru",
- "multiaddr",
- "rand 0.7.3",
- "rayon",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "poldercast"
 version = "0.11.7"
-source = "git+https://github.com/michaeljfazio/poldercast.git?rev=251eadc#251eadc2ac420a8d1b4548b50bddaad5790f2a30"
+source = "git+https://github.com/AndrewWestberg/poldercast.git?rev=f0d33b9#f0d33b9395461c317fe6cf3963a24e4df5c7ce55"
 dependencies = [
  "hex",
  "multiaddr",
@@ -3294,30 +3279,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbf7e9e623549b0e21f6e97cf8ecf247c1a8fd2e8a992ae265314300b2455d5c"
 dependencies = [
  "rand_core 0.3.1",
-]
-
-[[package]]
-name = "rayon"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db6ce3297f9c85e16621bb8cca38a06779ffc31bb8184e1be4bed2be4678a098"
-dependencies = [
- "crossbeam-deque",
- "either",
- "rayon-core",
-]
-
-[[package]]
-name = "rayon-core"
-version = "1.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08a89b46efaf957e52b18062fb2f4660f8b8a4dde1807ca002690868ef2c85a9"
-dependencies = [
- "crossbeam-deque",
- "crossbeam-queue 0.2.1",
- "crossbeam-utils 0.7.0",
- "lazy_static",
- "num_cpus",
 ]
 
 [[package]]

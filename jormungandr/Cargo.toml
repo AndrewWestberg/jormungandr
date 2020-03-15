@@ -41,7 +41,7 @@ linked-hash-map = "0.5"
 network-core    = { path = "../chain-deps/network-core" }
 network-grpc    = { path = "../chain-deps/network-grpc" }
 pin-utils = "0.1.0-alpha.4"
-poldercast = { git = "https://github.com/michaeljfazio/poldercast.git", rev = "251eadc"}
+poldercast = { git = "https://github.com/AndrewWestberg/poldercast.git", rev = "f0d33b9"}
 r2d2 = "0.8"
 rand = "0.7"
 rustls = "^0.16.0 "

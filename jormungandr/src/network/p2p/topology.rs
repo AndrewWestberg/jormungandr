@@ -1,20 +1,23 @@
 //! module defining the p2p topology management objects
 //!
 
+use std::borrow::{Borrow, BorrowMut};
+use std::convert::Infallible;
+
+use poldercast::{
+    custom_layers,
+    NodeProfile,
+    poldercast::{Cyclon, Rings, Vicinity}, PolicyReport, StrikeReason, Topology,
+};
+use slog::Logger;
+use tokio::prelude::future::{self, Future};
+use tokio::sync::lock::{Lock, LockGuard};
+
 use crate::{
     log::KEY_SUB_TASK,
     network::p2p::{Gossips, Id, Node, Policy, PolicyConfig},
     settings::start::network::Configuration,
 };
-use poldercast::{
-    custom_layers,
-    poldercast::{Cyclon, Rings, Vicinity},
-    NodeProfile, PolicyReport, StrikeReason, Topology,
-};
-use slog::Logger;
-use std::borrow::BorrowMut;
-use tokio::prelude::future::{self, Future};
-use tokio::sync::lock::{Lock, LockGuard};
 
 const DEFAULT_MAX_NODES: usize = 10000;
 
@@ -63,7 +66,18 @@ impl Builder {
     }
 
     /// set all the default poldercast modules (Rings, Vicinity and Cyclon)
-    fn set_poldercast_modules(mut self) -> Self {
+    fn set_poldercast_modules(mut self, config: &Configuration) -> Self {
+        let preferred = config
+            .trusted_peers
+            .iter()
+            .filter(|peer| peer.preferred)
+            .map(|peer| peer.id.into())
+            .collect::<Vec<poldercast::Id>>();
+        if !preferred.is_empty() {
+            self.topology
+                .add_layer(custom_layers::PreferredPeers::with_peers(preferred));
+        }
+
         self.topology.add_layer(Rings::default());
         self.topology.add_layer(Vicinity::default());
         self.topology.add_layer(Cyclon::default());
@@ -77,17 +91,6 @@ impl Builder {
         } else {
             self.topology
                 .add_layer(custom_layers::RandomDirectConnections::default());
-        }
-
-        let preferred = config
-            .trusted_peers
-            .iter()
-            .filter(|peer| peer.preferred)
-            .map(|peer| peer.id.into())
-            .collect::<Vec<poldercast::Id>>();
-        if !preferred.is_empty() {
-            self.topology
-                .add_layer(custom_layers::PreferredPeers::with_peers(preferred));
         }
 
         self
@@ -108,7 +111,7 @@ impl P2pTopology {
     // TODO: this should be private to the module with the builder exposed externally
     pub fn new(config: &Configuration, logger: Logger) -> Self {
         Builder::new(config.profile.clone(), logger)
-            .set_poldercast_modules()
+            .set_poldercast_modules(&config)
             .set_custom_modules(&config)
             .set_policy(config.policy.clone())
             .set_max_nodes(DEFAULT_MAX_NODES)
@@ -117,18 +120,18 @@ impl P2pTopology {
 
     // TODO: same as write now, but can be implemented differently
     // with RwLock in tokio 0.2
-    fn read<E>(&self) -> impl Future<Item = LockGuard<Topology>, Error = E> {
+    fn read<E>(&self) -> impl Future<Item=LockGuard<Topology>, Error=E> {
         self.write()
     }
 
-    fn write<E>(&self) -> impl Future<Item = LockGuard<Topology>, Error = E> {
+    fn write<E>(&self) -> impl Future<Item=LockGuard<Topology>, Error=E> {
         let mut lock = self.lock.clone();
         future::poll_fn(move || Ok(lock.poll_lock()))
     }
 
     /// Returns a list of neighbors selected in this turn
     /// to contact for event dissemination.
-    pub fn view<E>(&self, selection: poldercast::Selection) -> impl Future<Item = View, Error = E> {
+    pub fn view<E>(&self, selection: poldercast::Selection) -> impl Future<Item=View, Error=E> {
         self.write().map(move |mut topology| {
             let peers = topology
                 .view(None, selection)
@@ -142,7 +145,7 @@ impl P2pTopology {
         })
     }
 
-    pub fn initiate_gossips<E>(&self, with: Id) -> impl Future<Item = Gossips, Error = E> {
+    pub fn initiate_gossips<E>(&self, with: Id) -> impl Future<Item=Gossips, Error=E> {
         self.write()
             .map(move |mut topology| topology.initiate_gossips(with.into()).into())
     }
@@ -151,7 +154,7 @@ impl P2pTopology {
         &self,
         from: Id,
         gossips: Gossips,
-    ) -> impl Future<Item = (), Error = E> {
+    ) -> impl Future<Item=(), Error=E> {
         self.write().map(move |mut topology| {
             if topology.nodes().node_count().available_count < DEFAULT_MAX_NODES {
                 topology.accept_gossips(from.into(), gossips.into())
@@ -163,7 +166,7 @@ impl P2pTopology {
         &mut self,
         with: Id,
         gossips: Gossips,
-    ) -> impl Future<Item = Gossips, Error = E> {
+    ) -> impl Future<Item=Gossips, Error=E> {
         self.write().map(move |mut topology| {
             topology
                 .exchange_gossips(with.into(), gossips.into())
@@ -175,16 +178,16 @@ impl P2pTopology {
         self.node_id
     }
 
-    pub fn node<E>(&self) -> impl Future<Item = NodeProfile, Error = E> {
+    pub fn node<E>(&self) -> impl Future<Item=NodeProfile, Error=E> {
         self.read().map(|topology| topology.profile().clone())
     }
 
-    pub fn force_reset_layers<E>(&self) -> impl Future<Item = (), Error = E> {
+    pub fn force_reset_layers<E>(&self) -> impl Future<Item=(), Error=E> {
         self.write()
             .map(|mut topology| topology.force_reset_layers())
     }
 
-    pub fn list_quarantined<E>(&self) -> impl Future<Item = Vec<poldercast::Node>, Error = E> {
+    pub fn list_quarantined<E>(&self) -> impl Future<Item=Vec<poldercast::Node>, Error=E> {
         self.read().map(|topology| {
             topology
                 .nodes()
@@ -195,7 +198,7 @@ impl P2pTopology {
         })
     }
 
-    pub fn list_available<E>(&self) -> impl Future<Item = Vec<poldercast::Node>, Error = E> {
+    pub fn list_available<E>(&self) -> impl Future<Item=Vec<poldercast::Node>, Error=E> {
         self.read().map(|topology| {
             topology
                 .nodes()
@@ -206,7 +209,22 @@ impl P2pTopology {
         })
     }
 
-    pub fn list_non_public<E>(&self) -> impl Future<Item = Vec<poldercast::Node>, Error = E> {
+    pub fn list_specific<E>(
+        &self,
+        ids: &Vec<poldercast::Id>,
+    ) -> impl Future<Item=Vec<poldercast::Node>, Error=E> {
+        let idz = ids.to_owned();
+        self.read().map(move|topology| {
+            topology
+                .nodes()
+                .all_specific_nodes(&idz)
+                .into_iter()
+                .cloned()
+                .collect()
+        })
+    }
+
+    pub fn list_non_public<E>(&self) -> impl Future<Item=Vec<poldercast::Node>, Error=E> {
         self.read().map(|topology| {
             topology
                 .nodes()
@@ -217,7 +235,7 @@ impl P2pTopology {
         })
     }
 
-    pub fn nodes_count<E>(&self) -> impl Future<Item = poldercast::Count, Error = E> {
+    pub fn nodes_count<E>(&self) -> impl Future<Item=poldercast::Count, Error=E> {
         self.read().map(|topology| topology.nodes().node_count())
     }
 
@@ -229,7 +247,7 @@ impl P2pTopology {
         &self,
         node: Id,
         issue: StrikeReason,
-    ) -> impl Future<Item = Option<PolicyReport>, Error = E> {
+    ) -> impl Future<Item=Option<PolicyReport>, Error=E> {
         self.write().map(move |mut topology| {
             topology.update_node(node.into(), |node| {
                 node.record_mut().strike(issue);

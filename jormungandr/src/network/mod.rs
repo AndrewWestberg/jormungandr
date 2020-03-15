@@ -330,14 +330,56 @@ fn handle_propagation_msg(
     let prop_state = state.clone();
     let send_to_peers = match msg {
         PropagateMsg::Block(ref header) => {
+            let is_my_block = match header.get_stakepool_id() {
+                Some(stakepool_id) => {
+                    // let pool_id = stakepool_id.to_string();
+                    if stakepool_id.to_string().starts_with("634f6d2") {
+                        // println!("block made by MY stakepool: {}", pool_id);
+                        true
+                    } else {
+                        // println!("block made by stakepool: {}", pool_id);
+                        false
+                    }
+                }
+                None => {
+                    // println!("block made by unknown stakepool");
+                    false
+                }
+            };
             debug!(state.logger(), "block to propagate"; "hash" => %header.hash());
             let header = header.clone();
-            let future = state
-                .topology
-                .view(poldercast::Selection::Topic {
-                    topic: p2p::topic::BLOCKS,
-                })
-                .and_then(move |view| prop_state.peers.propagate_block(view.peers, header));
+            let future = if is_my_block {
+                A(state
+                    .peers
+                    .infos()
+                    .map(|infos| {
+                        infos
+                            .into_iter()
+                            .map(|peer_info| poldercast::Id::from(peer_info.id))
+                            .collect()
+                    })
+                    .and_then(move |ids: Vec<poldercast::Id>| {
+                        prop_state
+                            .topology
+                            .list_specific(&ids)
+                            .map(|nodes: Vec<poldercast::Node>| {
+                                println!("Sending MY block to {} peers!", nodes.len());
+                                nodes.into_iter()
+                                    .map(|node| p2p::Node::new(node.info().clone()))
+                                    .collect()
+                            })
+                            .and_then(move |peers| prop_state.peers.propagate_block(peers, header))
+                    })
+                )
+            } else {
+                B(state
+                    .topology
+                    .view(poldercast::Selection::Topic {
+                        topic: p2p::topic::BLOCKS,
+                    })
+                    .and_then(move |view| prop_state.peers.propagate_block(view.peers, header))
+                )
+            };
             A(future)
         }
         PropagateMsg::Fragment(ref fragment) => {

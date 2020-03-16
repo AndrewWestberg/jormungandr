@@ -27,7 +27,7 @@ use std::time::SystemTime;
 // Buffer size determines the number of stream items pending processing that
 // can be buffered before back pressure is applied to the inbound half of
 // a gRPC subscription stream.
-const BUFFER_LEN: usize = 8;
+const BUFFER_LEN: usize = 256;
 
 #[derive(Debug)]
 pub struct PropagateError<T> {

@@ -5,6 +5,44 @@
 //! transactions...);
 //!
 
+use std::collections::{BTreeMap, HashSet};
+use std::convert::Infallible;
+use std::error;
+use std::fmt;
+use std::io;
+use std::iter;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{self, AtomicUsize};
+use std::time::Duration;
+
+use futures::future;
+use futures::future::Either::{A, B};
+use futures::prelude::*;
+use futures::stream;
+use network_core::gossip::{Gossip, Node};
+use poldercast::StrikeReason;
+use rand::seq::SliceRandom;
+use slog::Logger;
+use thiserror::Error;
+use tokio::timer::Interval;
+use tokio_compat::runtime::TaskExecutor;
+
+use crate::blockcfg::{Block, HeaderHash};
+use crate::blockchain::{Blockchain as NewBlockchain, Tip};
+use crate::intercom::{BlockMsg, ClientMsg, NetworkMsg, PropagateMsg, TransactionMsg};
+use crate::log;
+use crate::settings::start::network::{Configuration, Peer, Protocol};
+use crate::stats_counter::StatsCounter;
+use crate::utils::{
+    async_msg::{MessageBox, MessageQueue},
+    task::TokioServiceInfo,
+};
+
+pub use self::bootstrap::Error as BootstrapError;
+use self::client::ConnectError;
+use self::p2p::{comm::Peers, P2pTopology};
+
 pub mod bootstrap;
 mod client;
 mod grpc;
@@ -12,8 +50,6 @@ mod inbound;
 pub mod p2p;
 mod service;
 mod subscription;
-
-use thiserror::Error;
 
 // Constants
 
@@ -32,6 +68,7 @@ mod buffer_sizes {
         // while waiting for the fragment task to become ready to process them.
         pub const FRAGMENTS: usize = 128;
     }
+
     pub mod outbound {
         // Size of buffer for outbound header streams.
         pub const HEADERS: usize = 32;
@@ -42,42 +79,6 @@ mod buffer_sizes {
         pub const BLOCKS: usize = 8;
     }
 }
-
-use self::client::ConnectError;
-use self::p2p::{comm::Peers, P2pTopology};
-use crate::blockcfg::{Block, HeaderHash};
-use crate::blockchain::{Blockchain as NewBlockchain, Tip};
-use crate::intercom::{BlockMsg, ClientMsg, NetworkMsg, PropagateMsg, TransactionMsg};
-use crate::log;
-use crate::settings::start::network::{Configuration, Peer, Protocol};
-use crate::utils::{
-    async_msg::{MessageBox, MessageQueue},
-    task::TokioServiceInfo,
-};
-use futures::future;
-use futures::future::Either::{A, B};
-use futures::prelude::*;
-use futures::stream;
-use network_core::gossip::{Gossip, Node};
-use poldercast::StrikeReason;
-use rand::seq::SliceRandom;
-use slog::Logger;
-use tokio::timer::Interval;
-use tokio_compat::runtime::TaskExecutor;
-
-use std::collections::BTreeMap;
-use std::convert::Infallible;
-use std::error;
-use std::fmt;
-use std::io;
-use std::iter;
-use std::net::SocketAddr;
-use std::sync::atomic::{self, AtomicUsize};
-use std::sync::Arc;
-use std::time::Duration;
-
-pub use self::bootstrap::Error as BootstrapError;
-use crate::stats_counter::StatsCounter;
 
 #[derive(Debug)]
 pub struct ListenError {
@@ -163,8 +164,8 @@ impl GlobalState {
     }
 
     pub fn spawn<F>(&self, f: F)
-    where
-        F: Future<Item = (), Error = ()> + Send + 'static,
+        where
+            F: Future<Item=(), Error=()> + Send + 'static,
     {
         self.executor.spawn(f)
     }
@@ -238,7 +239,7 @@ pub fn start(
     params: TaskParams,
     topology: P2pTopology,
     stats_counter: StatsCounter,
-) -> impl Future<Item = (), Error = ()> {
+) -> impl Future<Item=(), Error=()> {
     // TODO: the node needs to be saved/loaded
     //
     // * the ID needs to be consistent between restart;
@@ -302,7 +303,7 @@ fn handle_network_input(
     input: MessageQueue<NetworkMsg>,
     state: GlobalStateR,
     channels: Channels,
-) -> impl Future<Item = (), Error = ()> {
+) -> impl Future<Item=(), Error=()> {
     input.for_each(move |msg| match msg {
         NetworkMsg::Propagate(msg) => A(A(handle_propagation_msg(
             msg,
@@ -326,7 +327,7 @@ fn handle_propagation_msg(
     msg: PropagateMsg,
     state: GlobalStateR,
     channels: Channels,
-) -> impl Future<Item = (), Error = ()> {
+) -> impl Future<Item=(), Error=()> {
     let prop_state = state.clone();
     let send_to_peers = match msg {
         PropagateMsg::Block(ref header) => {
@@ -349,14 +350,25 @@ fn handle_propagation_msg(
             debug!(state.logger(), "block to propagate"; "hash" => %header.hash());
             let header = header.clone();
             let future = if is_my_block {
+                let state1 = state.clone();
                 A(state
                     .peers
                     .infos()
-                    .map(|infos| {
-                        infos
+                    .map(move |infos| {
+                        let preferred_ids: Vec<poldercast::Id> = state1.config
+                            .trusted_peers
+                            .iter()
+                            .filter(|peer| peer.preferred)
+                            .map(|peer| peer.id.into())
+                            .collect::<Vec<poldercast::Id>>();
+
+                        let peer_ids: Vec<poldercast::Id> = infos
                             .into_iter()
                             .map(|peer_info| poldercast::Id::from(peer_info.id))
-                            .collect()
+                            .collect::<Vec<poldercast::Id>>();
+
+                        let all_ids = [&preferred_ids[..], &peer_ids[..]].concat();
+                        all_ids
                     })
                     .and_then(move |ids: Vec<poldercast::Id>| {
                         prop_state
@@ -421,7 +433,7 @@ fn handle_propagation_msg(
     })
 }
 
-fn start_gossiping(state: GlobalStateR, channels: Channels) -> impl Future<Item = (), Error = ()> {
+fn start_gossiping(state: GlobalStateR, channels: Channels) -> impl Future<Item=(), Error=()> {
     let config = &state.config;
     let topology = state.topology.clone();
     let conn_state = state.clone();
@@ -458,7 +470,7 @@ fn start_gossiping(state: GlobalStateR, channels: Channels) -> impl Future<Item 
         })
 }
 
-fn send_gossip(state: GlobalStateR, channels: Channels) -> impl Future<Item = (), Error = ()> {
+fn send_gossip(state: GlobalStateR, channels: Channels) -> impl Future<Item=(), Error=()> {
     let topology = state.topology.clone();
     let logger = state.logger().new(o!(log::KEY_SUB_TASK => "send_gossip"));
     topology

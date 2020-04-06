@@ -52,8 +52,11 @@ impl Builder {
     }
 
     /// set all the default poldercast modules (Rings, Vicinity and Cyclon)
-    fn set_poldercast_modules(mut self) -> Self {
-        self.topology.add_layer(Rings::default());
+    fn set_poldercast_modules(mut self, config: &Configuration) -> Self {
+        self.topology.add_layer(PreferredListLayer::new(
+            config.layers.preferred_list.clone(),
+        ));
+        // self.topology.add_layer(Rings::default());
         self.topology.add_layer(Vicinity::default());
         self.topology.add_layer(Cyclon::default());
         self
@@ -67,10 +70,6 @@ impl Builder {
             self.topology
                 .add_layer(custom_layers::RandomDirectConnections::default());
         }
-
-        self.topology.add_layer(PreferredListLayer::new(
-            config.layers.preferred_list.clone(),
-        ));
 
         self
     }
@@ -88,7 +87,7 @@ impl Builder {
 impl P2pTopology {
     pub fn new(config: &Configuration, logger: Logger) -> Self {
         Builder::new(config.profile.clone(), logger)
-            .set_poldercast_modules()
+            .set_poldercast_modules(&config)
             .set_custom_modules(&config)
             .set_policy(config.policy.clone())
             .build()
